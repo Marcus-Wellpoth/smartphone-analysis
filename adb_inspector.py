@@ -31,7 +31,6 @@ PROFILES = {
         ('packages_user', ['shell', 'pm', 'list', 'packages', '--user', '0']),
         ('packages_disabled', ['shell', 'pm', 'list', 'packages', '-d']),
         ('packages_system', ['shell', 'pm', 'list', 'packages', '-s']),
-        ('appops', ['shell', 'cmd', 'appops', 'get', '--user', '0']),
         ('device_admin', ['shell', 'dumpsys', 'device_policy']),
         ('accessibility', ['shell', 'settings', 'get', 'secure', 'enabled_accessibility_services']),
         ('notification_listeners', ['shell', 'settings', 'get', 'secure', 'enabled_notification_listeners']),
@@ -99,6 +98,20 @@ def run(cmd, timeout):
                 'stdout': '', 'stderr': str(ex)}
 
 
+def command_status(result):
+    """ADB commands may return partial output and still exit with code 0."""
+    if result['exit_code'] != 0:
+        return 'FAILED'
+    if re.search(r'(?i)(permission denied|operation not permitted|cannot open netlink socket)', result['stderr']):
+        return 'PARTIAL' if result['stdout'].strip() else 'FAILED'
+    return 'SUCCESS'
+
+
+def command_counts(commands):
+    return {status: sum(c['status'] == status for c in commands)
+            for status in ('SUCCESS', 'PARTIAL', 'FAILED')}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('profiles', nargs='*', choices=list(PROFILES) + ['all'],
@@ -153,12 +166,14 @@ def main():
         if result['stderr']:
             (folder / f'{name}.stderr.txt').write_text(result['stderr'], encoding='utf-8')
         manifest['commands'].append({'profile': p, 'name': name, 'argv': argv,
-                                     'exit_code': result['exit_code'], 'seconds': result['seconds'],
+                                     'exit_code': result['exit_code'], 'status': command_status(result),
+                                     'seconds': result['seconds'],
                                      'bytes': len(result['stdout'].encode('utf-8')),
                                      'error': result['stderr'][:500]})
     (out / 'manifest.json').write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
-    failures = sum(c['exit_code'] != 0 for c in manifest['commands'])
-    print(f'\nReport: {out}\nCommands: {len(jobs)}, failed/unavailable: {failures}')
+    counts = command_counts(manifest['commands'])
+    print(f'\nReport: {out}\nCommands: {len(jobs)}, '
+          f'failed: {counts["FAILED"]}, partial: {counts["PARTIAL"]}, success: {counts["SUCCESS"]}')
     print('WARNING: Report may contain personal/device/network information. Do not publish unredacted.')
     return 0
 

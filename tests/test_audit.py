@@ -4,8 +4,35 @@ import tempfile
 import unittest
 from pathlib import Path
 from audit_report import analyze, render_html
+from adb_inspector import PROFILES, command_status
 
 class AuditTests(unittest.TestCase):
+    def test_appops_requires_a_package(self):
+        self.assertFalse(any(name == 'appops' for name, _ in PROFILES['apps']))
+
+    def test_command_status(self):
+        self.assertEqual(command_status({'exit_code': 0, 'stdout': 'tcp LISTEN',
+                                         'stderr': 'Cannot open netlink socket: Permission denied'}), 'PARTIAL')
+        self.assertEqual(command_status({'exit_code': 0, 'stdout': '',
+                                         'stderr': 'Permission denied'}), 'FAILED')
+        self.assertEqual(command_status({'exit_code': 255, 'stdout': '',
+                                         'stderr': 'Error: Package name not specified'}), 'FAILED')
+        self.assertEqual(command_status({'exit_code': 0, 'stdout': 'ok', 'stderr': ''}), 'SUCCESS')
+
+    def test_old_manifest_detects_partial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'manifest.json').write_text(json.dumps({'commands': [
+                {'profile': 'network', 'name': 'sockets', 'exit_code': 0,
+                 'error': 'Cannot open netlink socket: Permission denied'},
+                {'profile': 'apps', 'name': 'appops', 'exit_code': 255,
+                 'error': 'Package name not specified'}
+            ]}))
+            result = analyze(root)
+            self.assertEqual(result['partial_commands'], ['network/sockets'])
+            self.assertEqual(result['failed_commands'], ['apps/appops'])
+            self.assertIn('Teilweise auswertbare', render_html(result))
+
     def test_findings_and_stale_listener(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

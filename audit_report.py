@@ -105,9 +105,20 @@ def analyze(root, today=None):
             add('REVIEW', 'INSTALLER_' + pkg, 'Nonstandard or unknown installer: ' + pkg, item['installer'],
                 'Verify installation origin and APK signing certificate; nonstandard installer is not malware proof.')
     findings.sort(key=lambda x: (LEVELS[x['severity']], x['id']))
-    failures = [c['profile'] + '/' + c['name'] for c in manifest.get('commands', []) if c.get('exit_code') != 0]
+    def status(c):
+        # Old manifests do not have status; infer partial from stderr for compatibility.
+        if c.get('status') in ('SUCCESS', 'PARTIAL', 'FAILED'):
+            return c['status']
+        if c.get('exit_code') != 0:
+            return 'FAILED'
+        if re.search(r'(?i)(permission denied|operation not permitted|cannot open netlink socket)', c.get('error', '')):
+            return 'PARTIAL'
+        return 'SUCCESS'
+
+    failures = [c['profile'] + '/' + c['name'] for c in manifest.get('commands', []) if status(c) == 'FAILED']
+    partials = [c['profile'] + '/' + c['name'] for c in manifest.get('commands', []) if status(c) == 'PARTIAL']
     return {'schema_version': 2, 'timestamp': manifest.get('timestamp'), 'report': str(root),
-            'coverage': coverage, 'failed_commands': failures,
+            'coverage': coverage, 'failed_commands': failures, 'partial_commands': partials,
             'packages_seen': len(packages), 'packages_detailed': checked, 'findings': findings,
             'limitations': ['Triage, not malware detection or forensic proof of absence.',
                             'Vendor firmware and baseband vulnerabilities generally cannot be evaluated by ADB.',
@@ -129,6 +140,7 @@ def render_html(result):
 <p>Erfasste Drittanbieterpakete: {result['packages_seen']} · Detailliert geprüft: {result['packages_detailed']}. <strong>Kein Malware-Freibrief.</strong></p>
 <h2>Findings</h2>{''.join(cards) or '<p>Keine Regel hat ausgelöst; Abdeckung prüfen.</p>'}<h2>Abdeckung und Grenzen</h2>
 <p>Fehlgeschlagene Befehle: {len(result['failed_commands'])}.</p><pre>{esc(chr(10).join(result['failed_commands']) or 'Keine')}</pre>
+<p>Teilweise auswertbare Befehle: {len(result['partial_commands'])}.</p><pre>{esc(chr(10).join(result['partial_commands']) or 'Keine')}</pre>
 <ul>{''.join('<li>'+esc(x)+'</li>' for x in result['limitations'])}</ul><p><strong>Vertraulich:</strong> Bericht enthält möglicherweise Geräte- und App-Informationen. Nicht öffentlich hochladen.</p></html>'''
 
 
@@ -145,7 +157,7 @@ def main():
     dest_html.write_text(render_html(result), encoding='utf-8')
     for f in result['findings']:
         print(f'[{f["severity"]:6}] {f["title"]}')
-    print(f'Packages: {result["packages_seen"]}, detailed: {result["packages_detailed"]}, failed commands: {len(result["failed_commands"])}')
+    print(f'Packages: {result["packages_seen"]}, detailed: {result["packages_detailed"]}, failed commands: {len(result["failed_commands"])}, partial commands: {len(result["partial_commands"])}')
     print(f'Reports: {dest_html} and {dest_json}')
 
 
