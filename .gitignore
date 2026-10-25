@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Smartphone diagnostics — PRIVATE
+reports/
+**/reports/
+*.log
+*.logcat
+bugreport-*
+*.ab
+*.bak
+
+# Local configuration
+.env
+.env.*
+!.env.example
+
+# Editors
+.idea/
+.vscode/
