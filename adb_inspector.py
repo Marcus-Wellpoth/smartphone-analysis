@@ -22,11 +22,13 @@ PROFILES = {
         ('mounts', ['shell', 'mount']),
         ('security_enforcing', ['shell', 'getenforce']),
         ('verified_boot', ['shell', 'getprop', 'ro.boot.verifiedbootstate']),
+        ('bootloader_state', ['shell', 'getprop', 'ro.boot.vbmeta.device_state']),
         ('security_patch', ['shell', 'getprop', 'ro.build.version.security_patch']),
     ],
     'apps': [
         ('packages_all', ['shell', 'pm', 'list', 'packages', '-f', '-i']),
-        ('packages_third_party', ['shell', 'pm', 'list', 'packages', '-3']),
+        ('packages_third_party', ['shell', 'pm', 'list', 'packages', '-3', '-i', '--user', '0']),
+        ('packages_user', ['shell', 'pm', 'list', 'packages', '--user', '0']),
         ('packages_disabled', ['shell', 'pm', 'list', 'packages', '-d']),
         ('packages_system', ['shell', 'pm', 'list', 'packages', '-s']),
         ('appops', ['shell', 'cmd', 'appops', 'get', '--user', '0']),
@@ -67,6 +69,12 @@ PROFILES = {
         ('accessibility', ['shell', 'settings', 'get', 'secure', 'enabled_accessibility_services']),
         ('notification_listeners', ['shell', 'settings', 'get', 'secure', 'enabled_notification_listeners']),
         ('vpn', ['shell', 'dumpsys', 'vpn_management']),
+        ('device_admins', ['shell', 'dumpsys', 'device_policy']),
+        ('enabled_input_method', ['shell', 'settings', 'get', 'secure', 'enabled_input_methods']),
+        ('default_input_method', ['shell', 'settings', 'get', 'secure', 'default_input_method']),
+        ('enabled_notification_listeners', ['shell', 'settings', 'get', 'secure', 'enabled_notification_listeners']),
+        ('always_on_vpn', ['shell', 'settings', 'get', 'secure', 'always_on_vpn_app']),
+        ('unknown_app_sources', ['shell', 'settings', 'get', 'secure', 'install_non_market_apps']),
     ],
     'logs': [
         ('logcat_recent', ['logcat', '-d', '-t', '2000', '-v', 'threadtime']),
@@ -98,6 +106,7 @@ def main():
     ap.add_argument('-s', '--serial', help='ADB serial, needed when several devices are connected')
     ap.add_argument('-o', '--output', default='reports', help='parent output directory')
     ap.add_argument('--timeout', type=int, default=35, help='seconds per command (default 35)')
+    ap.add_argument('--audit-packages', action='store_true', help='collect dumpsys package + appops for all third-party apps (may take several minutes)')
     ap.add_argument('--package', help='also inspect one package name using dumpsys package and appops')
     args = ap.parse_args()
     if not shutil.which('adb'):
@@ -125,6 +134,15 @@ def main():
             ap.error('invalid package name')
         jobs += [('package', 'package_details', ['shell', 'dumpsys', 'package', args.package]),
                  ('package', 'package_appops', ['shell', 'cmd', 'appops', 'get', args.package])]
+    if args.audit_packages:
+        pkg_result = run(base + ['shell', 'pm', 'list', 'packages', '-3', '--user', '0'], args.timeout)
+        packages = sorted(set(re.findall(r'^package:([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)$', pkg_result['stdout'], re.M)))
+        if pkg_result['exit_code'] == 0:
+            for pkg in packages:
+                jobs.extend([('packages_detail', pkg + '_package', ['shell', 'dumpsys', 'package', pkg]),
+                             ('packages_detail', pkg + '_appops', ['shell', 'appops', 'get', pkg])])
+        else:
+            print('WARNING: third-party package list failed; package detail collection skipped', file=sys.stderr)
     manifest = {'timestamp': stamp, 'serial': serial, 'profiles': profiles, 'commands': []}
     for p, name, argv in jobs:
         folder = out / p

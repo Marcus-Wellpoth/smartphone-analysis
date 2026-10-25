@@ -42,3 +42,26 @@ python3 compare_reports.py OLD_REPORT NEW_REPORT --all
 - For a single app, review `package/package_details.txt` for requested/install-time/runtime permissions and components, plus `package/package_appops.txt` for recorded operations.
 
 Official reference: https://developer.android.com/tools/adb and https://developer.android.com/tools/dumpsys
+
+## Field security audit (v0.2)
+
+**Always obtain the device owner's consent.** This tooling uses read-only ADB operations. It **does not** install apps, change settings, remove packages, attempt rooting, or collect logcat by default. Use only on devices you're authorized to inspect. Reports contain personal data and must remain private.
+
+```bash
+chmod +x run_audit.sh
+./run_audit.sh                  # one connected device; interactive consent confirmation
+./run_audit.sh SERIAL           # select specific device
+```
+
+The script collects `system apps security processes network battery` plus per-third-party-package `dumpsys package` and `appops get` output. It writes `reports/<date>_<serial>/security_report.html` for a local browser and `security_findings.json` for automation. Per-package collection may take time; vendor-restricted commands are marked as failed. The report includes coverage gaps. No logcat is collected in the normal field workflow. **Do not commit or upload reports.**
+
+Alternatively use the individual commands:
+
+```bash
+python3 adb_inspector.py system apps security --audit-packages
+python3 audit_report.py reports/NAME_OF_LATEST_REPORT
+python3 compare_reports.py reports/OLD reports/NEW
+python3 -m unittest discover -s tests -v
+```
+
+Interpretation: `HIGH` means a prioritized concern, not proven compromise; `MEDIUM` a security weakness; `REVIEW` contextual/manual review; `INFO` informational. Installer attribution is not cryptographic verification. An old patch date cannot be fixed by an app audit. ADB does not reliably expose every app's traffic or forensic artifacts.
